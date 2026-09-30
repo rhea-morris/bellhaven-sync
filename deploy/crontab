@@ -1,0 +1,4 @@
+# Daily at 06:15 America/Chicago: scrape + match + queue proposals. It never writes to the CRM.
+# Reviewers work the queue in the review app; only an approval writes.
+CRON_TZ=America/Chicago
+15 6 * * * cd /opt/bellhaven-sync && . .venv/bin/activate && set -a && . ./.env && set +a && python -m bellhaven_sync.pipeline >> logs/pipeline.log 2>&1

@@ -1,0 +1,35 @@
+# Daily proposal generation. The job only READS the website and CRM and queues
+# proposals in the state DB; writes happen only when a reviewer approves in the app.
+# In production the state DB would be Postgres shared with the review app. Here the
+# SQLite file is carried between runs on a dedicated branch so re-runs stay idempotent.
+name: bellhaven-daily-sync
+on:
+  schedule:
+    - cron: "15 11 * * *"      # 06:15 America/Chicago (CDT)
+  workflow_dispatch: {}
+concurrency: bellhaven-sync     # never two runs at once
+permissions:
+  contents: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+      - name: Restore state DB
+        run: |
+          git fetch origin sync-state || true
+          git show origin/sync-state:bellhaven_sync.db > state/bellhaven_sync.db 2>/dev/null || echo "fresh state"
+      - name: Generate proposals
+        env:
+          BH_CRM_TOKEN: ${{ secrets.BH_CRM_TOKEN }}
+        run: python -m bellhaven_sync.pipeline
+      - name: Persist state DB
+        run: |
+          cp state/bellhaven_sync.db /tmp/db && cp state/last_report.json /tmp/report.json
+          git config user.name "bellhaven-sync-bot" && git config user.email "bot@users.noreply.github.com"
+          git checkout --orphan sync-state && git rm -rfq . && cp /tmp/db bellhaven_sync.db && cp /tmp/report.json last_report.json
+          git add bellhaven_sync.db last_report.json && git commit -qm "state $(date -u +%FT%TZ)" && git push -f origin sync-state
